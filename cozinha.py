@@ -7,7 +7,9 @@ class AppCozinha(ctk.CTk):
         self.title("SISTEMA KDS - PREPARAÇÃO")
         
         # Configurar para ecrã inteiro ou janela grande
-        self.geometry("1100x850")
+        self.geometry("+1920+0") # Empurra para o ecrã secundário (assumindo 1920px de largura no principal)
+        self.attributes("-fullscreen", True)
+        self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
         self.configure(fg_color="#0f0f0f") # Fundo quase preto para contraste total
 
         # Título Superior
