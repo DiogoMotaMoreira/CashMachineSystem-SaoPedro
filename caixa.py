@@ -14,9 +14,9 @@ class AppCaixa(ctk.CTk):
         
         self.carrinho = []
         self.total = 0.0
-        self.num_pedido = 10200
         self.ficheiro_pedidos = "pedidos.txt"
         self.ficheiro_produtos = "produtos.json"
+        self.num_pedido = self.obter_ultimo_numero_pedido()
         
         self.carregar_produtos()
 
@@ -79,6 +79,21 @@ class AppCaixa(ctk.CTk):
         
         self.label_feedback = ctk.CTkLabel(self, text="", font=("Arial", 28, "bold"))
         self.label_feedback.place(relx=0.5, rely=0.94, anchor="center")
+
+    # --- GESTÃO DO NÚMERO DO PEDIDO ---
+    def obter_ultimo_numero_pedido(self):
+        if os.path.exists(self.ficheiro_pedidos):
+            try:
+                with open(self.ficheiro_pedidos, "r", encoding="utf-8") as f:
+                    linhas = [linha for linha in f.readlines() if linha.strip()]
+                    if linhas:
+                        ultima_linha = linhas[-1]
+                        if ultima_linha.startswith("#"):
+                            numero = ultima_linha.split(maxsplit=1)[0][1:] # Pega no "15" de "#15"
+                            return int(numero)
+            except Exception:
+                pass
+        return 0
 
     # --- GESTÃO DE PRODUTOS ---
     def carregar_produtos(self):
