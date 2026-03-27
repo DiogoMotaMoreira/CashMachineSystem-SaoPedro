@@ -22,10 +22,10 @@ class AppCaixa(ctk.CTk):
 
         # Layout
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1) # A grelha de produtos passou para a linha 2
 
         # --- 1. MONITOR DE TOPO ---
-        self.frame_monitor = ctk.CTkFrame(self, fg_color="#000", height=200, corner_radius=0)
+        self.frame_monitor = ctk.CTkFrame(self, fg_color="#000", height=150, corner_radius=0)
         self.frame_monitor.grid(row=0, column=0, sticky="ew")
         
         # Botão Configurações (Discreto no canto)
@@ -39,14 +39,29 @@ class AppCaixa(ctk.CTk):
         self.txt_lista.pack(side="left", padx=30, pady=10)
         self.txt_lista.configure(state="disabled")
 
-        # --- 2. ÁREA DE PRODUTOS ---
+        # --- 2. ABAS DE CATEGORIAS ---
+        self.categoria_atual = "Todos"
+        
+        self.frame_abas = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_abas.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 0))
+        
+        self.btn_tab_todos = ctk.CTkButton(self.frame_abas, text="TODOS", font=("Arial", 22, "bold"), height=50, command=lambda: self.mudar_aba("Todos"))
+        self.btn_tab_todos.pack(side="left", padx=5, expand=True, fill="x")
+        
+        self.btn_tab_bebidas = ctk.CTkButton(self.frame_abas, text="BEBIDAS", font=("Arial", 22, "bold"), height=50, fg_color="#444", command=lambda: self.mudar_aba("Bebidas"))
+        self.btn_tab_bebidas.pack(side="left", padx=5, expand=True, fill="x")
+        
+        self.btn_tab_comida = ctk.CTkButton(self.frame_abas, text="COMIDA", font=("Arial", 22, "bold"), height=50, fg_color="#444", command=lambda: self.mudar_aba("Comida"))
+        self.btn_tab_comida.pack(side="left", padx=5, expand=True, fill="x")
+
+        # --- 3. ÁREA DE PRODUTOS ---
         self.scroll_produtos = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
-        self.scroll_produtos.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        self.scroll_produtos.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
         self.desenhar_botoes_produtos()
 
-        # --- 3. BARRA INFERIOR ---
+        # --- 4. BARRA INFERIOR ---
         self.footer = ctk.CTkFrame(self, fg_color="#1a1a1a", height=220, corner_radius=0)
-        self.footer.grid(row=2, column=0, sticky="ew")
+        self.footer.grid(row=3, column=0, sticky="ew")
 
         # Controlos
         self.f_edit = ctk.CTkFrame(self.footer, fg_color="transparent")
@@ -95,13 +110,24 @@ class AppCaixa(ctk.CTk):
                 pass
         return 0
 
-    # --- GESTÃO DE PRODUTOS ---
+    # --- GESTÃO DE CATEGORIAS E PRODUTOS ---
+    def mudar_aba(self, categoria):
+        self.categoria_atual = categoria
+        # Atualiza a cor das abas para mostrar qual está ativa
+        self.btn_tab_todos.configure(fg_color="#1f538d" if categoria == "Todos" else "#444")
+        self.btn_tab_bebidas.configure(fg_color="#1f538d" if categoria == "Bebidas" else "#444")
+        self.btn_tab_comida.configure(fg_color="#1f538d" if categoria == "Comida" else "#444")
+        self.desenhar_botoes_produtos()
+
     def carregar_produtos(self):
         if os.path.exists(self.ficheiro_produtos):
             with open(self.ficheiro_produtos, "r", encoding="utf-8") as f:
                 self.menu_produtos = json.load(f)
         else:
-            self.menu_produtos = [{"nome": "🍺 Fino", "preco": 2.0}, {"nome": "🍔 Hamb.", "preco": 5.0}]
+            self.menu_produtos = [
+                {"categoria": "Bebidas", "nome": "🍺 Fino", "preco": 2.0}, 
+                {"categoria": "Comida", "nome": "🍔 Hamb.", "preco": 5.0}
+            ]
             self.guardar_produtos()
 
     def guardar_produtos(self):
@@ -116,10 +142,21 @@ class AppCaixa(ctk.CTk):
         
         r, c = 0, 0
         for item in self.menu_produtos:
+            cat = item.get("categoria", "Outros")
+            # Se não estivermos na aba "Todos" e a categoria não corresponder, ignora este botão
+            if self.categoria_atual != "Todos" and cat != self.categoria_atual:
+                continue
+                
             nome, preco = item['nome'], item['preco']
             btn = ctk.CTkButton(self.scroll_produtos, text=f"{nome}\n{preco:.2f}€", 
                                font=("Arial", 26, "bold"), height=150, fg_color="#2c2c2c",
                                command=lambda n=nome, p=preco: self.add_item(n, p))
+            
+            # Corrige o problema do scroll do rato (Mouse Wheel) quando o ponteiro está sobre os botões
+            btn.bind("<MouseWheel>", lambda e: self.scroll_produtos._parent_canvas.yview_scroll(int(-1*(e.delta/120)), "units") if hasattr(e, 'delta') and e.delta else None)
+            btn.bind("<Button-4>", lambda e: self.scroll_produtos._parent_canvas.yview_scroll(-1, "units"))
+            btn.bind("<Button-5>", lambda e: self.scroll_produtos._parent_canvas.yview_scroll(1, "units"))
+            
             btn.grid(row=r, column=c, padx=6, pady=6, sticky="nsew")
             c += 1
             if c > 4: r += 1; c = 0
@@ -178,6 +215,7 @@ class AppCaixa(ctk.CTk):
     def add_item(self, nome, preco):
         self.carrinho.append({"nome": nome, "preco": preco})
         self.total += preco
+        self.label_feedback.configure(text="") # Limpa a mensagem antiga ao começar um novo pedido
         self.atualizar_ui()
 
     def add_manual(self):
@@ -216,6 +254,7 @@ class AppCaixa(ctk.CTk):
             if pago < self.total:
                 self.label_feedback.configure(text="VALOR INSUFICIENTE!", text_color="red")
                 return
+            troco = pago - self.total
             self.num_pedido += 1
             contagem = {}
             for item in self.carrinho:
@@ -224,8 +263,9 @@ class AppCaixa(ctk.CTk):
             resumo = " + ".join([f"{q}x {n}" if q > 1 else n for n, q in contagem.items()])
             with open(self.ficheiro_pedidos, "a", encoding="utf-8") as f:
                 f.write(f"#{self.num_pedido}   {resumo.lower()}\n")
-            self.label_feedback.configure(text=f"PEDIDO #{self.num_pedido} OK! TROCO: {(pago-self.total):.2f}€", text_color="#50fa7b")
+            
             self.limpar_pedido()
+            self.label_feedback.configure(text=f"ÚLTIMO PEDIDO: #{self.num_pedido}   |   TROCO: {troco:.2f}€", text_color="#50fa7b")
         except: pass
 
 if __name__ == "__main__":
