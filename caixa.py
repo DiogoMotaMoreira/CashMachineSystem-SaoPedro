@@ -1,6 +1,15 @@
 import customtkinter as ctk
 import os
 import json
+from datetime import datetime
+
+# Tenta importar as bibliotecas da impressora, se não conseguir, desativa a função
+try:
+    from escpos.printer import Usb
+    from escpos.exceptions import USBNotFoundError
+    PRINTER_AVAILABLE = True
+except ImportError:
+    PRINTER_AVAILABLE = False
 
 ctk.set_appearance_mode("dark")
 
@@ -17,6 +26,11 @@ class AppCaixa(ctk.CTk):
         self.ficheiro_pedidos = "pedidos.txt"
         self.ficheiro_produtos = "produtos.json"
         self.num_pedido = self.obter_ultimo_numero_pedido()
+
+        # --- CONFIGURAÇÃO DA IMPRESSORA ---
+        # Substitua pelos IDs do seu dispositivo USB (Vendor e Product)
+        self.PRINTER_VENDOR_ID = 0x0fe6
+        self.PRINTER_PRODUCT_ID = 0x811e
         
         self.carregar_produtos()
 
@@ -247,6 +261,85 @@ class AppCaixa(ctk.CTk):
             for nome, qtd in contagem.items(): self.txt_lista.insert("end", f" {qtd}x {nome}\n")
         self.txt_lista.configure(state="disabled")
 
+    def imprimir_recibo(self, num_pedido, carrinho, total, pago, troco):
+        if not PRINTER_AVAILABLE:
+            return
+
+        p = None
+        try:
+            # Conexão sem o profile que dava erro anteriormente
+            p = Usb(self.PRINTER_VENDOR_ID, self.PRINTER_PRODUCT_ID)
+            
+            # Força a impressora a usar a tabela europeia (suporta Á, É, Í, Ó, Ú e €)
+            p.charcode('CP858')
+
+            # --- CABEÇALHO PERSONALIZADO ---
+            p.set(align='center', bold=True, width=1, height=1)
+            p.text("*" * 32 + "\n")
+            p.set(align='center', bold=True, width=2, height=2)
+            p.text("FESTAS DE\nSAO PEDRO\n")
+            p.set(align='center', bold=True, width=1, height=1)
+            p.text("*" * 32 + "\n\n")
+            
+            # --- NÚMERO DO PEDIDO (GIGANTE) ---
+            p.set(align='center', bold=True, width=2, height=2)
+            p.text(f"PEDIDO: #{num_pedido}\n\n")
+            
+            # --- DATA E HORA ---
+            data_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
+            p.set(align='center', bold=False, width=1, height=1)
+            p.text(f"Data: {data_atual}\n")
+            p.text("-" * 32 + "\n") 
+
+            contagem = {}
+            precos_unitarios = {item['nome']: item['preco'] for item in carrinho}
+            for item in carrinho:
+                contagem[item['nome']] = contagem.get(item['nome'], 0) + 1
+            
+            p.set(align='left', bold=False, width=1, height=1)
+            for nome, qtd in contagem.items():
+                # Limpeza de Emojis mantendo os acentos portugueses
+                nome_limpo = nome.encode('latin1', 'ignore').decode('latin1').strip()
+                
+                linha_esq = f"{qtd}x {nome_limpo}"
+                linha_dir = f"{qtd * precos_unitarios[nome]:.2f} EUR"
+                
+                # Espaçamento dinâmico para 32 colunas
+                espacos = 32 - len(linha_esq) - len(linha_dir)
+                p.text(linha_esq + (" " * max(1, espacos)) + linha_dir + "\n")
+
+            p.text("=" * 32 + "\n")
+            
+            # --- TOTAIS (EM DESTAQUE) ---
+            p.set(align='right', bold=True, width=1, height=2)
+            p.text(f"TOTAL: {total:.2f} EUR\n")
+            p.set(align='right', bold=False, width=1, height=1)
+            p.text(f"PAGO:  {pago:.2f} EUR\n")
+            p.text(f"TROCO: {troco:.2f} EUR\n\n")
+            
+            # --- RODAPÉ ---
+            p.set(align='center', bold=True, width=1, height=1)
+            p.text("*** BOAS FESTAS! ***\n")
+            p.set(align='center', bold=False, width=1, height=1)
+            p.text("Obrigado pela sua visita!\n")
+
+            # Finalização
+            p.text("\n\n\n") # Espaço para corte manual se necessário
+            p.cut()
+            
+        except Exception as e:
+            print(f"ERRO NA IMPRESSORA: {e}")
+            # Feedback na interface para o utilizador
+            if hasattr(self, 'label_feedback'):
+                self.label_feedback.configure(text="Erro de Impressão!", text_color="orange")
+        finally:
+            # Garante que a ligação USB é sempre libertada para o próximo pedido
+            if p is not None:
+                try:
+                    p.close()
+                except:
+                    pass
+
     def finalizar_pedido(self):
         if not self.carrinho: return
         try:
@@ -261,11 +354,18 @@ class AppCaixa(ctk.CTk):
                 nome = item['nome'].replace("🍺 ", "").replace("🍔 ", "").replace("🥤 ", "").replace("⭐ ", "")
                 contagem[nome] = contagem.get(nome, 0) + 1
             resumo = " + ".join([f"{q}x {n}" if q > 1 else n for n, q in contagem.items()])
+            
+            # --- Guardar no ficheiro de texto para a cozinha ---
             with open(self.ficheiro_pedidos, "a", encoding="utf-8") as f:
                 f.write(f"#{self.num_pedido}   {resumo.lower()}\n")
             
-            self.limpar_pedido()
+            # --- Feedback visual imediato ---
             self.label_feedback.configure(text=f"ÚLTIMO PEDIDO: #{self.num_pedido}   |   TROCO: {troco:.2f}€", text_color="#50fa7b")
+            
+            # --- Imprimir o recibo ---
+            self.imprimir_recibo(self.num_pedido, self.carrinho, self.total, pago, troco)
+
+            self.limpar_pedido()
         except: pass
 
 if __name__ == "__main__":
